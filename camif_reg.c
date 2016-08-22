@@ -83,6 +83,9 @@ int imapx_camif_cfg_clock(uint32_t camif_clock, uint32_t camo_clk)
 //	module_sys_reset(&g_camif_sys);
 	module_enable("cam");
 	module_reset("cam");
+	/*
+	*(1)就是选择DVP的接口，0x20寄存器写1，表示选择DVP。此时选择的是0
+	*/
 	writel(readl(CAMIF_SYSM_ADDR+0x20) | (camif_init_config.dvpsel << 2), CAMIF_SYSM_ADDR +0x20);
 	//camera mclk
 	return 0;
@@ -506,32 +509,50 @@ void imapx_camif_host_init(void)
 	return;
 }
 
+/*
+*(1)目前我也不知道DVP是个啥。先看看。
+*/
 void imapx_camifdvp_init(void) {
-	/* wrapper bypass */
+	/* 
+	*(1)wrapper bypass 
+	*(2)从目前来看，应该是bypass
+	*/
 	if(camifdvp_init_config.hmode != 0x2 && camifdvp_init_config.hmode != 0x3
 			&& camifdvp_init_config.vmode != 0x1) {
 		printf("Camif DVP wrapper bypass!!\n");
 		return ;
 	}
 	printf("Camif DVP wrapper begin to config!!\n");
-
+	/*
+	*(1)原来DVP和camif是两个模块？因为它们有不同的基地址。
+	*(2)设置几个信号的极性
+	*/
 	writel((camifdvp_init_config.debugon << 3)  | 
 			(camifdvp_init_config.invclk << 2) |
 			(camifdvp_init_config.invvsync) << 1 |
 			camifdvp_init_config.invhsync , g_camif_host.dvp_base + 0);
-
+	/*
+	*(1)反正就是往DVP模块的0x4寄存器配置了hmode和vmode
+	*/
 	writel((camifdvp_init_config.hmode << 4) |
 			camifdvp_init_config.vmode, g_camif_host.dvp_base + 0x4);
-
+	/*
+	*(1)配置水平像素的个数。
+	*(2)配置垂直行的个数。
+	*/
 	writel(((camifdvp_init_config.hnum -1) << 16) |
 			(camifdvp_init_config.vnum -1), g_camif_host.dvp_base + 0x8);
-
+	//8个数据线的屏蔽寄存器。总共8个数据线，可以屏蔽任何一个bit位。
 	writel(camifdvp_init_config.syncmask, g_camif_host.dvp_base + 0xc);
+	//第一个同步code
 	writel(camifdvp_init_config.syncode0, g_camif_host.dvp_base + 0x10);
+	//第二个同步code
 	writel(camifdvp_init_config.syncode1, g_camif_host.dvp_base + 0x14);
+	//第三个同步code
 	writel(camifdvp_init_config.syncode2, g_camif_host.dvp_base + 0x18);
+	//第四个同步code
 	writel(camifdvp_init_config.syncode3, g_camif_host.dvp_base + 0x1c);
-
+	//水平delay的时间计数器、垂直delay的时间计数器
 	writel(((camifdvp_init_config.hdlycnt) << 16) |
 			(camifdvp_init_config.vdlycnt), g_camif_host.dvp_base + 0x20);
 }
