@@ -148,11 +148,16 @@ void imapx_camif_dump_regs(void)
 
 	return;
 }
+/*
+*(1)第一个参数是偏移地址；第二个参数是宽度；第三个参数是移位；第四个参数是数值；
+*/
 void imapx_camif_set_bit(uint32_t addr, int bits, int offset, uint32_t value)
 {
 	uint32_t tmp;
 	tmp = camif_read(&g_camif_host, addr);
+	//将数据移位到对应的位置；将tmp对应的bit全部设置为0；
 	tmp = (value << offset) | (~(((1 << bits)- 1) << offset)  & tmp);
+	//写入寄存器
 	camif_write(&g_camif_host, addr, tmp);
 }
 
@@ -448,11 +453,16 @@ void imapx_camif_disable_capture(void)
 	imapx_camif_set_bit(CAMIF_CIIMGCPT, 3, 
 				CIIMGCPT_ImgCptEn_PrSc, 0x00);	
 }
-
-
+/*
+*(1)这个函数相当于逆初始化。就是退出的时候关闭。
+*/
 void imapx_camif_host_deinit(void)
 {
-	//disable camif
+	/*
+	*(1)图像采样使能寄存器。bit31，表示camera if接口全局使能控制：0-表示关闭；1-表示开启。
+	*(2)图像采样使能寄存器。bit30，表示编码通路使能。
+	*(3)图像采样使能寄存器。bit29，表示preview通路使能。
+	*/
 	imapx_camif_set_bit(CAMIF_CIIMGCPT, 1, CIIMGCPT_CAMIF_EN, 0);
 	imapx_camif_set_bit(CAMIF_CIIMGCPT, 1, CIIMGCPT_ImgCptEn_CoSc, 0);
 	imapx_camif_set_bit(CAMIF_CIIMGCPT, 1, CIIMGCPT_ImgCptEn_PrSc, 0);
@@ -471,7 +481,10 @@ void imapx_camif_host_deinit(void)
 void imapx_camif_host_init(void)
 {
 
-	/* camif soft reset*/
+	/* 
+	*(1)camif soft reset:写1复位；写0干嘛？
+	*(2)设置窗口的横向、纵向偏移量。往寄存器0x4写数据。
+	*/
 	imapx_camif_set_bit(CAMIF_CIGCTRL, 1, CIGCTRL_SwRst, 1); 
 	//udelay(5000);
 	imapx_camif_set_bit(CAMIF_CIGCTRL, 1, CIGCTRL_SwRst, 0);
@@ -479,29 +492,47 @@ void imapx_camif_host_init(void)
 	camif_write(&g_camif_host, CAMIF_CIWDOFST, 
 				(camif_init_config.xoffset << CIWDOFST_WinHorOfst) |
 				(camif_init_config.yoffset << CIWDOFST_WinVerOfst));
-	//set camif input format 
+	/*
+	*(1)CISRCFMT_ITU601or656:表示0x0寄存器的bit31，选择BT656、BT601、BT1120
+	*(2)CISRCFMT_UVOffset:表示CbCr偏移值
+	*(3)CISRCFMT_ScanMode:设置为0，表示逐行模式
+	*(4)CISRCFMT_Order422:由于选择的是601模式，yuv模式0，就是YCbCr
+	*/
 	camif_write(&g_camif_host, CAMIF_CISRCFMT,
-				(camif_init_config.itu601 << CISRCFMT_ITU601or656) |
+				(camif_init_config.itu601 << CISRCFMT_ITU601or656) | 
 				(camif_init_config.uvoffset << CISRCFMT_UVOffset) |
 			//	(camif_init_config.interlaced << CISRCFMT_ScanMode) |
 				(0 << CISRCFMT_ScanMode) |
 				(camif_init_config.yuv_sequence << CISRCFMT_Order422));
 	
 	//set camif interrupt and signal polarity
+	/*
+	*(0)CAMIF_CIGCTRL:
+	*(1)CIGCTRL_IRQ_OvFiCH4_en:使能通道4的FIFO溢出中断
+	*(2)CIGCTRL_IRQ_OvFiCH3_en:使能通道3的FIFO溢出中断
+	*(3)CIGCTRL_IRQ_OvFiCH2_en:使能通道2的FIFO溢出中断
+	*(4)CIGCTRL_IRQ_OvFiCH1_en:使能通道1的FIFO溢出中断
+	*(5)CIGCTRL_IRQ_OvFiCH0_en:使能通道0的FIFO溢出中断
+	*(6)CIGCTRL_DEBUG_EN:debug
+	*(7)CIGCTRL_IRQ_en:中断使能信号，当采集图片时产生中断
+	*(8)CIGCTRL_IRQ_Bad_SYN_en:bt656，输入参照编码错误中断使能
+	*/
 	camif_write(&g_camif_host, CAMIF_CIGCTRL, (1 << CIGCTRL_IRQ_OvFiCH4_en) |
 			(1 << CIGCTRL_IRQ_OvFiCH3_en) | (1 << CIGCTRL_DEBUG_EN) |
 			(1 << CIGCTRL_IRQ_OvFiCH2_en) | (1 << CIGCTRL_IRQ_en) |
 			(1 << CIGCTRL_IRQ_OvFiCH1_en) | (1 << CIGCTRL_IRQ_Bad_SYN_en) | 
 			(1 << CIGCTRL_IRQ_OvFiCH0_en) | 
-			(camif_init_config.intt_type << CIGCTRL_IRQ_Int_Mask_Pr) |
-			(camif_init_config.intt_type << CIGCTRL_IRQ_Int_Mask_Co) |
-			(camif_init_config.invpclk   << CIGCTRL_InvPolCAMPCLK)   |
-			(camif_init_config.invvsync  << CIGCTRL_InvPolCAMVSYNC)  |
-			(camif_init_config.invhref   << CIGCTRL_InvPolCAMHREF)   |
-			(camif_init_config.invfield  << CIGCTRL_InvPolCAMFIELD)); 
+			(camif_init_config.intt_type << CIGCTRL_IRQ_Int_Mask_Pr) | //preview通道中断屏蔽，此时是使用dma中断完成作中断
+			(camif_init_config.intt_type << CIGCTRL_IRQ_Int_Mask_Co) | //编码通道中断屏蔽，此时是使用dma中断完成作中断源
+			(camif_init_config.invpclk   << CIGCTRL_InvPolCAMPCLK)   | //极性设置
+			(camif_init_config.invvsync  << CIGCTRL_InvPolCAMVSYNC)  | //极性设置
+			(camif_init_config.invhref   << CIGCTRL_InvPolCAMHREF)   | //极性设置
+			(camif_init_config.invfield  << CIGCTRL_InvPolCAMFIELD));  //极性设置
 	
 	// set codec output 
-	
+	/*
+	*(1)目标图像的宽度和高度
+	*/
 	camif_write(&g_camif_host, CAMIF_CICOTRGSIZE,
 			(camif_init_config.c_width << CICOTRGSIZE_TargetHsize) |
 			(camif_init_config.c_height << CICOTRGSIZE_TargetVsize));
