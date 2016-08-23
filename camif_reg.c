@@ -218,6 +218,7 @@ int  imapx_camif_set_fmt(void)
 				//set codec target format
 			 {
 				 //set yuv420
+				 //编码目标格式寄存器
 				imapx_camif_set_bit(CAMIF_CICOTRGFMT, 1, CICOTRGFMT_ycc422,	
 						CODEC_IMAGE_FORMAT_YUV420);
 				//set store format
