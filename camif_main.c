@@ -295,6 +295,11 @@ int camif_test_main(int argc, char * argv[])
 		camif_hp_command();
 	}
 	else if(0 == strncmp(C1, argv[1], CSI_CMD_LEN)) { //ncase5
+		/*
+		*(1)设置host的输出图像格式：NV12
+		*(2)设置host的输出图像大小：
+		*(3)设置原图像的个数：1
+		*/
 		g_camif_host.outfmt.opix_fmt = PIX_FMT_NV12;
 		g_camif_host.outfmt.st_order = PIX_SEMP;
 #ifdef CONFIG_COMPILE_RTL
