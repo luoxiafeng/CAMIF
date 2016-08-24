@@ -270,9 +270,14 @@ int  imapx_camif_set_fmt(void)
 
 int imapx_camif_prepare_addr(void)
 {
+	/*
+	*(1)这里说明，同一个颜色空间，我们也可以通过控制硬件来配置存储格式。
+	*(2)就拿NV12和NV21来说，默认情况者这个颜色空间是两个通道的数据。Y一个通道；CbCr共用一个通道。
+	*   对于NV12和NV21这样的颜色空间，我们也可以让硬件来配置，将其三个分量分开存放。
+	*/
 	switch(g_camif_host.outfmt.st_order) {
 	//should use output format, but this use input format, just for show a picture
-		case  PIX_SEMP :
+		case  PIX_SEMP ://此时是Y-ch2；UV-ch1
 			{
 				g_camif_host.addr.y = (long)g_camif_host.dma_buf_saddr;
 				g_camif_host.addr.y_len = g_camif_host.outfmt.opix_w * g_camif_host.outfmt.opix_h;
@@ -281,6 +286,10 @@ int imapx_camif_prepare_addr(void)
 				//for yuv420sp or yuv422sp	
 				switch(g_camif_host.outfmt.opix_fmt)
 				{
+					/*
+					*(1)NV21和NV12是YUV420格式的一种，并且是2个plane的，分为两个盘面。Y一个盘面，UV一个盘面。
+					*(2)UV是交错存储的。数据长度是Y的一半。所以，这里在给cb的长度赋值的时候，除以2.
+					*/
 					case PIX_FMT_NV12:
 					case PIX_FMT_NV21:
 						{
@@ -296,29 +305,51 @@ int imapx_camif_prepare_addr(void)
 
 				g_camif_host.udma.ch1 = 1;
 				g_camif_host.addr.cr = 0;
+				/*
+				*(1)由于CbCr共用一个盘面，所以，cr通道不使用。
+				*/
 				g_camif_host.addr.cr_len = 0;
 				g_camif_host.udma.ch0 = 0;
 				break;
 					
 			}
-		case PIX_PLANAR :
+		case PIX_PLANAR ://此时选择的是Y-CH2；U-CH1；V-CH0
 			{
+				//y的地址是dma buffer的起始地址
 				g_camif_host.addr.y = (long)g_camif_host.dma_buf_saddr;
+				//y的长度是：宽x高
 				g_camif_host.addr.y_len = g_camif_host.outfmt.opix_w * g_camif_host.outfmt.opix_h;
+				//y的通道为通道2
 				g_camif_host.udma.ch2 = 1;
+				//cb的地址为y的地址+y的长度
 				g_camif_host.addr.cb = (long)(g_camif_host.addr.y + g_camif_host.addr.y_len);
 				//for yuv420p yuv422p	
 				switch(g_camif_host.outfmt.opix_fmt)
 				{
+					/*
+					*(1)本来NV12和NV21都是YUV420双盘面格式的，默认情况下是这样。
+					*(2)现在由于启用了三个通道，则YUV420使用三个盘面。
+					*(3)Y-通道2；U-通道1；V-通道0
+					*/
 					case PIX_FMT_NV12:
 					case PIX_FMT_NV21:
 						{
+							/*
+							*(1)既然NV12这样的颜色空间原本是两个通道，现在硬件配置为三个通道
+							*(2)则每个通道的数据长度肯定要设置。NV12是属于YUV420P的格式，每四个Y共用
+							*   一个CbCr，也就是说存在四倍的关系
+							*/
 							g_camif_host.addr.cb_len = g_camif_host.addr.y_len >> 2;
 							g_camif_host.addr.cr_len = g_camif_host.addr.y_len >> 2;
 							break;
 						}
 					default:
 						{
+							/*
+							*(1)对于这个默认的情况，我又要有话说了。
+							*(2)NV12和NV21都是YUV420，每四个Y共用一个CbCr。4倍的关系。
+							*(3)对于YUYV、YVYU、UYVY、VYUY，很明显都是每两个Y共用一个CbCr。2倍的关系。
+							*/
 							g_camif_host.addr.cb_len = g_camif_host.addr.y_len >> 1;
 							g_camif_host.addr.cr_len = g_camif_host.addr.y_len >> 1;
 							break;
@@ -333,6 +364,10 @@ int imapx_camif_prepare_addr(void)
 			}
 		case PIX_INTERLEAVED: //only for yuv422
 			{
+				/*
+				*(1)说是隔行扫描。PIX_INTERLEAVED只使用一个通道： YCbCr都在通道CH2
+				*(2)只针对YUV422格式。
+				*/
 				g_camif_host.addr.y = (long)g_camif_host.dma_buf_saddr;
 				g_camif_host.addr.y_len = g_camif_host.outfmt.opix_w * g_camif_host.outfmt.opix_h << 1;
 				g_camif_host.udma.ch2 = 1;
