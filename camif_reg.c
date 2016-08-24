@@ -218,10 +218,11 @@ int  imapx_camif_set_fmt(void)
 				//set codec target format
 			 {
 				 //set yuv420
-				 //编码目标格式寄存器
+				 //编码目标格式寄存器：YUV420
 				imapx_camif_set_bit(CAMIF_CICOTRGFMT, 1, CICOTRGFMT_ycc422,	
 						CODEC_IMAGE_FORMAT_YUV420);
 				//set store format
+				//设置存放格式，此时选择的是1. Y->CH2；CbCr->CH1；
 				imapx_camif_set_bit(CAMIF_CICOTRGFMT, 1, CICOTRGFMT_StoredFormat,
 						g_camif_host.outfmt.st_order);
 						//CODEC_STORE_FORMAT_SPLANAR);
@@ -232,10 +233,12 @@ int  imapx_camif_set_fmt(void)
 				//set codec target format
 			 {
 				 //set yuv422
+				 //图像编码格式：YUV422
 				imapx_camif_set_bit(CAMIF_CICOTRGFMT,
 						1, CICOTRGFMT_ycc422,
 						CODEC_IMAGE_FORMAT_YUV422);
 				//set store format
+				//设置存放格式，此时选择的是1：Y->CH2；CbCr->CH1；
 				imapx_camif_set_bit(CAMIF_CICOTRGFMT,
 						1, CICOTRGFMT_StoredFormat,
 						g_camif_host.outfmt.st_order);
@@ -248,7 +251,13 @@ int  imapx_camif_set_fmt(void)
 	}
 	CSI_INFO("camif driver :set code size: x = %d, y= %d\n",g_camif_host.outfmt.opix_w,
 			g_camif_host.outfmt.opix_h);
-	//set output size_t
+	
+	/*
+	*(1)set output size_t
+	*(2)设置最终输出图像的大小
+	*(3)设置窗口的位置。已经问过了mindy，这个窗口的大小，就是将原图切割的大小。这里提供了一个功能
+	*   允许将原图进行切割。
+	*/
 	camif_write(&g_camif_host, CAMIF_CICOTRGSIZE,
 			((g_camif_host.outfmt).opix_w << CICOTRGSIZE_TargetHsize) | 
 			((g_camif_host.outfmt).opix_h << CICOTRGSIZE_TargetVsize));
