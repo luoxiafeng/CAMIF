@@ -528,7 +528,7 @@ void imapx_camif_host_init(void)
 
 	/* 
 	*(1)camif soft reset:写1复位；写0干嘛？
-	*(2)设置窗口的横向、纵向偏移量。往寄存器0x4写数据。
+	*(2)设置窗口的横向、纵向偏移量。往寄存器0x4写数据。这个我已经请教过大神，所谓的窗口偏移，就是将原图丢掉一部分数据。
 	*/
 	imapx_camif_set_bit(CAMIF_CIGCTRL, 1, CIGCTRL_SwRst, 1); 
 	//udelay(5000);
@@ -539,7 +539,7 @@ void imapx_camif_host_init(void)
 				(camif_init_config.yoffset << CIWDOFST_WinVerOfst));
 	/*
 	*(1)CISRCFMT_ITU601or656:表示0x0寄存器的bit31，选择BT656、BT601、BT1120
-	*(2)CISRCFMT_UVOffset:表示CbCr偏移值
+	*(2)CISRCFMT_UVOffset:表示CbCr偏移值.原本这个设计的目的，是将RGB的格式，按照这个寄存器来转换为YCbCr或者YUV。
 	*(3)CISRCFMT_ScanMode:设置为0，表示逐行模式
 	*(4)CISRCFMT_Order422:由于选择的是601模式，yuv模式0，就是YCbCr
 	*/
