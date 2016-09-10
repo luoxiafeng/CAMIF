@@ -40,11 +40,12 @@ static int count = 0;
 int camif_irq_handle(int irq, void *arg)
 {
 	uint32_t status = 0;
-	static	uint32_t nframe = 0;
+	static	uint32_t encode_frame = 0;
+	static  uint32_t prev_frame = 0;
 	status = camif_read(&g_camif_host, CAMIF_CICPTSTATUS);
 	//printf("get status: 0x%x\n", status);
 	//one frame dma transfer done
-#if 1
+#if 0
 	if (nframe == 2)
 	{
 		uint32_t H = 0, W = 0;
@@ -58,18 +59,19 @@ int camif_irq_handle(int irq, void *arg)
 	}
 #endif
 	count++;
-
-	if ((status & (1 << CICPTSTATUS_C_PATH_DMA_SUCCESS))&& 
-		(!(status & (1 << CICPTSTATUS_C_PATH_FIFO_DIRTY_STATUS))))
+	//Preview Path
+	if ((status & (1 << CICPTSTATUS_P_PATH_DMA_SUCCESS))&& 
+		(!(status & (1 << CICPTSTATUS_P_PATH_FIFO_DIRTY_STATUS))))
 	{
+
 		printf("get status: 0x%x\n", status);
-		nframe++;
+		prev_frame++;
 		if(imapx_scanmode_interlaced()) {
 			printf(" status-0x%x Frame %d,Field %s should be %s\n",
-							status,nframe, (status & 0x10) ? "Even": "Odd",
-							(nframe % 2) ? "Odd": "Even");
+							status,prev_frame, (status & 0x10) ? "Even": "Odd",
+							(prev_frame% 2) ? "Odd": "Even");
 
-			if(2 == nframe) {
+			if(2 == prev_frame) {
 				/*
 				 * with the speed limit of file write, we need change the dma addr if want capture the continued frame 
 				 */
@@ -88,7 +90,7 @@ int camif_irq_handle(int irq, void *arg)
 				*/
 				printf("a good frame in interrupt status :0x%x\n", status);
 			}
-			if(3 == nframe) {
+			if(3 == prev_frame) {
 
 				camif_write(&g_camif_host, CAMIF_CICPTSTATUS, status);
 				imapx_camif_disable_capture();
@@ -106,20 +108,102 @@ int camif_irq_handle(int irq, void *arg)
 			}
 		}
 #ifdef CONFIG_COMPILE_RTL
-		else if(3 == nframe) {
+		else if(3 == prev_frame) {
+			camif_write(&g_camif_host, CAMIF_CICPTSTATUS, status);
+			imapx_camif_disable_capture();
+			if( g_camif_host.preview.st_order == PREVIEW_SPLANE_420 || 
+					g_camif_host.preview.st_order == PREVIEW_SPLANE_422 ){
+				write(intt_fd, (void *)g_camif_host.dma_buf_paddr, 
+						g_camif_host.addr.y_len + g_camif_host.addr.cb_len + g_camif_host.addr.cr_len);
+			}else{
+				write(intt_fd, (void *)g_camif_host.dma_buf_paddr,g_camif_host.addr.rgb_len); 
+			}
+			//imapx_camif_disable_capture();
+			close(intt_fd);
+			//imapx_camif_enable_capture();
+			printf("a good frame in interrupt status :0x%x\n", status);
+			printf("Get picture frame finished in interrupt\n");
+			ret_flag = 1;
+		}
+#else
+		else if(10 == prev_frame) {
+			imapx_camif_disable_capture();
+			printf("a good frame in interrupt status :0x%x\n", status);
+			write(intt_fd, (void *)g_camif_host.dma_buf_paddr, 
+				g_camif_host.addr.y_len + g_camif_host.addr.cb_len + g_camif_host.addr.cr_len);
+#ifdef CONFIG_COMPILE_FPGA
+			//power down gc0308 sensor
+			gpio_set_output_val(PDOWN_FRONT_PIN, 1);
+#endif
+			close(intt_fd);
+			printf("Get picture frame finished in interrupt\n");
+			ret_flag = 1;
+		}
+#endif
+	}
+
+	//Encode Path
+	if ((status & (1 << CICPTSTATUS_C_PATH_DMA_SUCCESS))&& 
+		(!(status & (1 << CICPTSTATUS_C_PATH_FIFO_DIRTY_STATUS))))
+	{
+		printf("get status: 0x%x\n", status);
+		encode_frame++;
+		if(imapx_scanmode_interlaced()) {
+			printf(" status-0x%x Frame %d,Field %s should be %s\n",
+							status,encode_frame, (status & 0x10) ? "Even": "Odd",
+							(encode_frame% 2) ? "Odd": "Even");
+
+			if(2 == encode_frame) {
+				/*
+				 * with the speed limit of file write, we need change the dma addr if want capture the continued frame 
+				 */
+				camif_write(&g_camif_host, CAMIF_CICPTSTATUS, status);
+				write(odd_fd, (void *)g_camif_host.dma_buf_paddr, 
+						g_camif_host.addr.y_len + g_camif_host.addr.cb_len + g_camif_host.addr.cr_len);
+				close(odd_fd);
+
+				/*
+				g_camif_host.dma_buf_saddr_t = g_camif_host.dma_buf_saddr; 
+				g_camif_host.dma_buf_paddr_t = g_camif_host.dma_buf_saddr;
+				g_camif_host.dma_buf_saddr = g_camif_host.dma_buf_saddr2;
+				g_camif_host.dma_buf_paddr = g_camif_host.dma_buf_saddr2; 
+				imapx_camif_prepare_addr();
+				imapx_camif_cfg_addr(0);
+				*/
+				printf("a good frame in interrupt status :0x%x\n", status);
+			}
+			if(3 == encode_frame) {
+
+				camif_write(&g_camif_host, CAMIF_CICPTSTATUS, status);
+				imapx_camif_disable_capture();
+				write(even_fd, (void *)g_camif_host.dma_buf_paddr, 
+						g_camif_host.addr.y_len + g_camif_host.addr.cb_len + g_camif_host.addr.cr_len);
+				close(even_fd);
+				printf("a good frame in interrupt status :0x%x\n", status);
+				/*
+				write(odd_fd, (void *)g_camif_host.dma_buf_paddr_t, 
+						g_camif_host.addr.y_len + g_camif_host.addr.cb_len + g_camif_host.addr.cr_len);
+				close(odd_fd);
+				*/
+				printf("Get picture frame finished in interrupt\n");
+				ret_flag = 1;
+			}
+		}
+#ifdef CONFIG_COMPILE_RTL
+		else if(3 == encode_frame) {
 			camif_write(&g_camif_host, CAMIF_CICPTSTATUS, status);
 			imapx_camif_disable_capture();
 			write(intt_fd, (void *)g_camif_host.dma_buf_paddr, 
 				g_camif_host.addr.y_len + g_camif_host.addr.cb_len + g_camif_host.addr.cr_len);
 			//imapx_camif_disable_capture();
 			close(intt_fd);
-			imapx_camif_enable_capture();
+			//imapx_camif_enable_capture();
 			printf("a good frame in interrupt status :0x%x\n", status);
 			printf("Get picture frame finished in interrupt\n");
 			ret_flag = 1;
 		}
 #else
-		else if(10 == nframe) {
+		else if(10 == encode_frame) {
 			imapx_camif_disable_capture();
 			printf("a good frame in interrupt status :0x%x\n", status);
 			write(intt_fd, (void *)g_camif_host.dma_buf_paddr, 
@@ -232,10 +316,18 @@ error_t camif_open(void)
 		g_camif_host.dma_buf_saddr = (void *)dmmu_map("cam", (uint32_t)g_camif_host.dma_buf_paddr, CAMIF_DMA_BUF_LEN);
 	}
 	else {
-		g_camif_host.dma_buf_saddr = malloc(CAMIF_DMA_BUF_LEN);
-		g_camif_host.dma_buf_paddr = g_camif_host.dma_buf_saddr;
-		g_camif_host.dma_buf_saddr2 = malloc(CAMIF_DMA_BUF_LEN);
-		g_camif_host.dma_buf_paddr2 = g_camif_host.dma_buf_saddr2;
+		if( g_camif_host.preview.enable ){//preview path
+			//RGB24BIT
+			g_camif_host.dma_buf_saddr = malloc(CAMIF_DMA_BUF_LEN_PREV);
+			g_camif_host.dma_buf_paddr = g_camif_host.dma_buf_saddr;
+			g_camif_host.dma_buf_saddr2 = malloc(CAMIF_DMA_BUF_LEN_PREV);
+			g_camif_host.dma_buf_paddr2 = g_camif_host.dma_buf_saddr2;
+		}else{//codec path
+			g_camif_host.dma_buf_saddr = malloc(CAMIF_DMA_BUF_LEN);
+			g_camif_host.dma_buf_paddr = g_camif_host.dma_buf_saddr;
+			g_camif_host.dma_buf_saddr2 = malloc(CAMIF_DMA_BUF_LEN);
+			g_camif_host.dma_buf_paddr2 = g_camif_host.dma_buf_saddr2;
+		}
 	}
 	
 #endif	
@@ -243,9 +335,13 @@ error_t camif_open(void)
 	imapx_camif_host_init();
 	imapx_camif_set_fmt();
 	imapx_camif_prepare_addr();
+	imapx_camif_prepare_preview_addr();
+	imapx_camif_config_scaler();
+	imapx_camif_config_preview();
 #if defined(MACRO_FOR_DEMO_USED)
 	for (i = 0; i < 3; i++) {
 		imapx_camif_cfg_addr(i);
+		imapx_camif_cfg_preview_addr(i);
 	}
 #else	
 	//for (i = 0; i < 4; i++) {
@@ -253,6 +349,7 @@ error_t camif_open(void)
 	//}
 
 	imapx_camif_cfg_addr(0);
+	imapx_camif_cfg_preview_addr(0);
 #endif	
 	//enable_irq(CAMIF_INTR_NUM);
 	//open file to store one frame
@@ -312,10 +409,12 @@ error_t camif_stream_start(void)
 	//add for rtl verification only use as a assert for external DG enable.
 #if defined(USE_CAMIF_REST_BIT)
 	gpio_set_mode(RESET_PIN, RESET_PIN, GPIO_MODE_FUNC, 0);
+	gpio_set_pull(RESET_PIN,RESET_PIN,1);
+	printf("====%s,%d\n",__func__,__LINE__);
 	imapx_camif_set_bit(CAMIF_CIGCTRL, 1, CIGCTRL_CamRst, 1);
 #else	
 	//pads_set_value(RESET_PIN, 1);
-	gpio_set_output_val(RESET_PIN, 1);
+	//gpio_set_output_val(RESET_PIN, 1);
 #endif	
 
 #endif

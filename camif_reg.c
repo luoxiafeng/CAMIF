@@ -83,9 +83,6 @@ int imapx_camif_cfg_clock(uint32_t camif_clock, uint32_t camo_clk)
 //	module_sys_reset(&g_camif_sys);
 	module_enable("cam");
 	module_reset("cam");
-	/*
-	*(1)就是选择DVP的接口，0x20寄存器写1，表示选择DVP。此时选择的是0
-	*/
 	writel(readl(CAMIF_SYSM_ADDR+0x20) | (camif_init_config.dvpsel << 2), CAMIF_SYSM_ADDR +0x20);
 	//camera mclk
 	return 0;
@@ -93,10 +90,17 @@ int imapx_camif_cfg_clock(uint32_t camif_clock, uint32_t camo_clk)
 
 int imapx_camif_register_test(void)
 {
-	uint8_t data = 0x55;
-	camif_write(&g_camif_host, CAMIF_CIWDOFST, data);
-	data = camif_read(&g_camif_host, CAMIF_CIWDOFST);
-	printf("Get camif register data:0x%x\n", data);
+	uint32_t data = 0x0;
+	uint32_t value = 0xffffffff;
+	uint8_t i = 0 ;
+
+	for( i = 0 ; i < 0x200; i += 4 )
+	{
+		camif_write(&g_camif_host, CAMIF_CIWDOFST, value);
+		data = camif_read(&g_camif_host, CAMIF_CIWDOFST);
+		if( data != value )
+			printf("write [0x%x],read [0x%x]\n",value,data);
+	}
 	return 0;
 }
 
@@ -148,16 +152,11 @@ void imapx_camif_dump_regs(void)
 
 	return;
 }
-/*
-*(1)第一个参数是偏移地址；第二个参数是宽度；第三个参数是移位；第四个参数是数值；
-*/
 void imapx_camif_set_bit(uint32_t addr, int bits, int offset, uint32_t value)
 {
 	uint32_t tmp;
 	tmp = camif_read(&g_camif_host, addr);
-	//将数据移位到对应的位置；将tmp对应的bit全部设置为0；
 	tmp = (value << offset) | (~(((1 << bits)- 1) << offset)  & tmp);
-	//写入寄存器
 	camif_write(&g_camif_host, addr, tmp);
 }
 
@@ -218,11 +217,9 @@ int  imapx_camif_set_fmt(void)
 				//set codec target format
 			 {
 				 //set yuv420
-				 //编码目标格式寄存器：YUV420
 				imapx_camif_set_bit(CAMIF_CICOTRGFMT, 1, CICOTRGFMT_ycc422,	
 						CODEC_IMAGE_FORMAT_YUV420);
 				//set store format
-				//设置存放格式，此时选择的是1. Y->CH2；CbCr->CH1；
 				imapx_camif_set_bit(CAMIF_CICOTRGFMT, 1, CICOTRGFMT_StoredFormat,
 						g_camif_host.outfmt.st_order);
 						//CODEC_STORE_FORMAT_SPLANAR);
@@ -233,12 +230,10 @@ int  imapx_camif_set_fmt(void)
 				//set codec target format
 			 {
 				 //set yuv422
-				 //图像编码格式：YUV422
 				imapx_camif_set_bit(CAMIF_CICOTRGFMT,
 						1, CICOTRGFMT_ycc422,
 						CODEC_IMAGE_FORMAT_YUV422);
 				//set store format
-				//设置存放格式，此时选择的是1：Y->CH2；CbCr->CH1；
 				imapx_camif_set_bit(CAMIF_CICOTRGFMT,
 						1, CICOTRGFMT_StoredFormat,
 						g_camif_host.outfmt.st_order);
@@ -251,13 +246,7 @@ int  imapx_camif_set_fmt(void)
 	}
 	CSI_INFO("camif driver :set code size: x = %d, y= %d\n",g_camif_host.outfmt.opix_w,
 			g_camif_host.outfmt.opix_h);
-	
-	/*
-	*(1)set output size_t
-	*(2)设置最终输出图像的大小
-	*(3)设置窗口的位置。已经问过了mindy，这个窗口的大小，就是将原图切割的大小。这里提供了一个功能
-	*   允许将原图进行切割。
-	*/
+	//set output size_t
 	camif_write(&g_camif_host, CAMIF_CICOTRGSIZE,
 			((g_camif_host.outfmt).opix_w << CICOTRGSIZE_TargetHsize) | 
 			((g_camif_host.outfmt).opix_h << CICOTRGSIZE_TargetVsize));
@@ -268,16 +257,215 @@ int  imapx_camif_set_fmt(void)
 
 }
 
+int imapx_camif_set_scaler_input_fmt_size(void)
+{
+	camif_write(&g_camif_host, CAMIF_SCALER_IN_SIZE,
+			(g_camif_host.scaler.src_hsize&0xffff) << SCALER_IN_H_SIZE_SHIFT | 
+			(g_camif_host.scaler.src_vsize&0xffff) << SCALER_IN_V_SIZE_SHIFT  );
+	return 0;
+}
+
+int imapx_camif_set_scaler_output_fmt_size(void)
+{
+	camif_write(&g_camif_host, CAMIF_SCALER_OUT_SIZE,
+			(g_camif_host.scaler.des_hsize&0xffff) << SCALER_OUT_H_SIZE_SHIFT |
+			(g_camif_host.scaler.des_vsize&0xffff) << SCALER_OUT_V_SIZE_SHIFT );
+	return 0;
+}
+
+
+int imapx_camif_set_scaler_ratio_h(void)
+{
+	//float value = 0;
+	uint32_t  integer_part = 0;
+	//float	  decimal_part = 0;
+	integer_part = g_camif_host.scaler.src_hsize * 8192 / g_camif_host.scaler.des_hsize;
+	//value		 = g_camif_host.scaler.src_hsize / g_camif_host.scaler.des_hsize;
+	//decimal_part = value - integer_part;
+
+	camif_write( &g_camif_host, CAMIF_SCALER_SRC_HRTIO, integer_part&0xf << SCALER_RATIO_INT_P_H);
+
+	return 0;
+}
+
+int imapx_camif_set_scaler_ratio_v(void)
+{
+	uint32_t  integer_part = 0;
+	integer_part = g_camif_host.scaler.src_vsize * 8192 / g_camif_host.scaler.des_vsize;
+	camif_write( &g_camif_host, CAMIF_SCALER_SRC_HRTIO, integer_part&0xf << SCALER_RATIO_INT_P_V);
+	return 0;
+}
+
+int imapx_camif_set_scaler_ctl(enum scaler_ctl_code code)
+{
+	uint8_t		reg = 0;
+	reg = camif_read( &g_camif_host, CAMIF_SCALER_CTL);
+	switch( code ){
+		case SCALER_BY_PASS_Y:
+			reg |= (1<<1);
+			camif_write( &g_camif_host, CAMIF_SCALER_CTL, reg);
+			break;
+		case SCALER_BY_PASS_N:
+			reg &= ~(1<<1);
+			camif_write( &g_camif_host, CAMIF_SCALER_CTL, reg);
+			break;
+		case SCALER_CTL_EN:
+			reg |= (1<<0);
+			camif_write( &g_camif_host, CAMIF_SCALER_CTL, reg);
+			break;
+		case SCALER_DIS:
+			reg &= ~(1<<0);
+			camif_write( &g_camif_host, CAMIF_SCALER_CTL, reg);
+			break;
+	}
+	return 0;
+}
+
+int imapx_camif_set_scaler_zir(void)
+{
+	uint8_t   zir_cos = g_camif_host.scaler.scaler_zir_algo;
+	camif_write( &g_camif_host, CAMIF_SCALER_LAZIR , zir_cos);
+	return 0;
+}
+
+int imapx_camif_set_scaler_zor(void)
+{
+	uint8_t   zor_cos = g_camif_host.scaler.scaler_zor_algo;
+	camif_write( &g_camif_host, CAMIF_SCALER_LAZOR , zor_cos);
+	return 0;
+}
+
+int imapx_camif_set_scaler_cos(void)
+{
+	return 0;
+}
+
+int imapx_camif_set_scaler_input_pix_size(void)
+{
+	uint16_t lines = g_camif_host.scaler.src_hsize;
+	uint16_t cols  = g_camif_host.scaler.src_vsize;
+	camif_write( &g_camif_host, CAMIF_SCALER_PIXCNT_IN , (lines << SCALER_IN_RSL_CNT_H) | (cols << SCALER_IN_RSL_CNT_V));
+	return 0;
+}
+
+int imapx_camif_set_scaler_output_pix_size(void)
+{
+	uint16_t lines = g_camif_host.scaler.des_hsize;
+	uint16_t cols  = g_camif_host.scaler.des_vsize;
+	camif_write( &g_camif_host, CAMIF_SCALER_PIXCNT_OUT , (lines << SCALER_OUT_RSL_CNT_H) | (cols << SCALER_OUT_RSL_CNT_V));
+	return 0;
+}
+
+int	imapx_camif_config_scaler(void){
+	if( 1 == g_camif_host.scaler.ctl ){
+		//Set input frame size
+		imapx_camif_set_scaler_input_fmt_size();
+		imapx_camif_set_scaler_input_pix_size();
+		//Set output frame size
+		imapx_camif_set_scaler_output_pix_size();
+		imapx_camif_set_scaler_output_fmt_size();
+		//set ratio 
+		imapx_camif_set_scaler_ratio_h();
+		imapx_camif_set_scaler_ratio_v();
+		//set zir/zor 
+		imapx_camif_set_scaler_zir();
+		imapx_camif_set_scaler_zor();
+		//control 
+		imapx_camif_set_scaler_ctl(SCALER_CTL_EN);
+		//if by pass
+		if( 1 == g_camif_host.scaler.bypass )
+			imapx_camif_set_scaler_ctl(SCALER_BY_PASS_Y);
+	}
+	return 0;
+}
+
+int imapx_camif_config_preview_stfmt(void)
+{
+	uint32_t	reg = 0;
+	reg = camif_read( &g_camif_host, CAMIF_CIPRTRGFMT );
+	if( g_camif_host.preview.st_order )
+		reg |= g_camif_host.preview.st_order<<CIPRTRGFMT_StoreFormat;
+	else
+		reg &= ~(1<<CIPRTRGFMT_StoreFormat);
+
+	camif_write( &g_camif_host, CAMIF_CIPRTRGFMT, reg);
+	return 0;
+}
+
+int imapx_camif_config_preview_bpp16fmt(void)
+{
+	uint32_t	reg = 0;
+	reg = camif_read( &g_camif_host, CAMIF_CIPRTRGFMT );
+	if( g_camif_host.preview.pixel_fmt )
+		reg |= g_camif_host.preview.pixel_fmt<<CIPRTRGFMT_BPP16Format;
+	else 
+		reg &= ~(1<<CIPRTRGFMT_BPP16Format);
+
+	camif_write( &g_camif_host, CAMIF_CIPRTRGFMT, reg);
+	return 0;
+}
+
+int imapx_camif_config_preview_bg(void)
+{
+	uint32_t	reg = 0;
+	reg = camif_read( &g_camif_host, CAMIF_CIPRTRGFMT );
+	if( g_camif_host.preview.bpp24_bl )
+		reg |= g_camif_host.preview.bpp24_bl<<CIPRTRGFMT_BPP24BL;
+	else 
+		reg &= ~(1<<CIPRTRGFMT_BPP24BL);
+
+	camif_write( &g_camif_host, CAMIF_CIPRTRGFMT, reg);
+	return 0;
+}
+
+int imapx_camif_config_preview_byteswap(void)
+{
+	uint32_t	reg = 0;
+	reg = camif_read( &g_camif_host, CAMIF_CIPRTRGFMT );
+	if( g_camif_host.preview.byte_swap )
+		reg |= g_camif_host.preview.byte_swap<<CIPRTRGFMT_ByteSwap;
+	else
+		reg &= ~(1<<CIPRTRGFMT_ByteSwap);
+
+	camif_write( &g_camif_host, CAMIF_CIPRTRGFMT, reg);
+	return 0;
+}
+
+int imapx_camif_config_preview_wordswap(void)
+{
+	uint32_t	reg = 0;
+	reg = camif_read( &g_camif_host, CAMIF_CIPRTRGFMT );
+	if( g_camif_host.preview.word_swap )
+		reg |= 1<<CIPRTRGFMT_HalfWordSwap;
+	else 
+		reg &= ~(1<<CIPRTRGFMT_HalfWordSwap);
+
+	camif_write( &g_camif_host, CAMIF_CIPRTRGFMT, reg);
+	return 0;
+}
+
+int	imapx_camif_config_preview(void){
+	if( 1 == g_camif_host.preview.enable ){
+		//set word swap
+		imapx_camif_config_preview_wordswap();
+		//set byte swap
+		imapx_camif_config_preview_byteswap();
+		//set bpp24_bl
+		imapx_camif_config_preview_bg();
+		//set rgb555,565
+		imapx_camif_config_preview_bpp16fmt();
+		//set store format
+		imapx_camif_config_preview_stfmt();
+	}
+	return 0;
+}
+
+
 int imapx_camif_prepare_addr(void)
 {
-	/*
-	*(1)这里说明，同一个颜色空间，我们也可以通过控制硬件来配置存储格式。
-	*(2)就拿NV12和NV21来说，默认情况者这个颜色空间是两个通道的数据。Y一个通道；CbCr共用一个通道。
-	*   对于NV12和NV21这样的颜色空间，我们也可以让硬件来配置，将其三个分量分开存放。
-	*/
 	switch(g_camif_host.outfmt.st_order) {
 	//should use output format, but this use input format, just for show a picture
-		case  PIX_SEMP ://此时是Y-ch2；UV-ch1
+		case  PIX_SEMP :
 			{
 				g_camif_host.addr.y = (long)g_camif_host.dma_buf_saddr;
 				g_camif_host.addr.y_len = g_camif_host.outfmt.opix_w * g_camif_host.outfmt.opix_h;
@@ -286,10 +474,6 @@ int imapx_camif_prepare_addr(void)
 				//for yuv420sp or yuv422sp	
 				switch(g_camif_host.outfmt.opix_fmt)
 				{
-					/*
-					*(1)NV21和NV12是YUV420格式的一种，并且是2个plane的，分为两个盘面。Y一个盘面，UV一个盘面。
-					*(2)UV是交错存储的。数据长度是Y的一半。所以，这里在给cb的长度赋值的时候，除以2.
-					*/
 					case PIX_FMT_NV12:
 					case PIX_FMT_NV21:
 						{
@@ -305,51 +489,29 @@ int imapx_camif_prepare_addr(void)
 
 				g_camif_host.udma.ch1 = 1;
 				g_camif_host.addr.cr = 0;
-				/*
-				*(1)由于CbCr共用一个盘面，所以，cr通道不使用。
-				*/
 				g_camif_host.addr.cr_len = 0;
 				g_camif_host.udma.ch0 = 0;
 				break;
 					
 			}
-		case PIX_PLANAR ://此时选择的是Y-CH2；U-CH1；V-CH0
+		case PIX_PLANAR :
 			{
-				//y的地址是dma buffer的起始地址
 				g_camif_host.addr.y = (long)g_camif_host.dma_buf_saddr;
-				//y的长度是：宽x高
 				g_camif_host.addr.y_len = g_camif_host.outfmt.opix_w * g_camif_host.outfmt.opix_h;
-				//y的通道为通道2
 				g_camif_host.udma.ch2 = 1;
-				//cb的地址为y的地址+y的长度
 				g_camif_host.addr.cb = (long)(g_camif_host.addr.y + g_camif_host.addr.y_len);
 				//for yuv420p yuv422p	
 				switch(g_camif_host.outfmt.opix_fmt)
 				{
-					/*
-					*(1)本来NV12和NV21都是YUV420双盘面格式的，默认情况下是这样。
-					*(2)现在由于启用了三个通道，则YUV420使用三个盘面。
-					*(3)Y-通道2；U-通道1；V-通道0
-					*/
 					case PIX_FMT_NV12:
 					case PIX_FMT_NV21:
 						{
-							/*
-							*(1)既然NV12这样的颜色空间原本是两个通道，现在硬件配置为三个通道
-							*(2)则每个通道的数据长度肯定要设置。NV12是属于YUV420P的格式，每四个Y共用
-							*   一个CbCr，也就是说存在四倍的关系
-							*/
 							g_camif_host.addr.cb_len = g_camif_host.addr.y_len >> 2;
 							g_camif_host.addr.cr_len = g_camif_host.addr.y_len >> 2;
 							break;
 						}
 					default:
 						{
-							/*
-							*(1)对于这个默认的情况，我又要有话说了。
-							*(2)NV12和NV21都是YUV420，每四个Y共用一个CbCr。4倍的关系。
-							*(3)对于YUYV、YVYU、UYVY、VYUY，很明显都是每两个Y共用一个CbCr。2倍的关系。
-							*/
 							g_camif_host.addr.cb_len = g_camif_host.addr.y_len >> 1;
 							g_camif_host.addr.cr_len = g_camif_host.addr.y_len >> 1;
 							break;
@@ -364,10 +526,6 @@ int imapx_camif_prepare_addr(void)
 			}
 		case PIX_INTERLEAVED: //only for yuv422
 			{
-				/*
-				*(1)说是隔行扫描。PIX_INTERLEAVED只使用一个通道： YCbCr都在通道CH2
-				*(2)只针对YUV422格式。
-				*/
 				g_camif_host.addr.y = (long)g_camif_host.dma_buf_saddr;
 				g_camif_host.addr.y_len = g_camif_host.outfmt.opix_w * g_camif_host.outfmt.opix_h << 1;
 				g_camif_host.udma.ch2 = 1;
@@ -387,9 +545,69 @@ int imapx_camif_prepare_addr(void)
 	return 0;
 }
 
+
+int imapx_camif_prepare_preview_addr(void)
+{
+	if( !g_camif_host.preview.enable )
+		return 0;
+	switch(g_camif_host.preview.st_order) {
+		case  PREVIEW_RGB_16BIT:
+			{
+				//RGB
+				g_camif_host.addr.rgb	  = (long)g_camif_host.dma_buf_saddr;
+				g_camif_host.addr.rgb_len = g_camif_host.scaler.des_hsize * g_camif_host.scaler.des_vsize * 2;
+				//channel 
+				g_camif_host.udma.ch4 = 1;
+				break;
+			}
+		case PREVIEW_RGB_24BIT://one word,32bit,4bytes
+			{
+				//RGB
+				g_camif_host.addr.rgb	  = (long)g_camif_host.dma_buf_saddr;
+				g_camif_host.addr.rgb_len = g_camif_host.scaler.des_hsize * g_camif_host.scaler.des_vsize * 4;
+				//channel 
+				g_camif_host.udma.ch4 = 1;
+				break;
+			}
+		case PREVIEW_SPLANE_420:
+			{
+				//Y
+				g_camif_host.addr.y     = (long)g_camif_host.dma_buf_saddr;
+				g_camif_host.addr.y_len = g_camif_host.scaler.des_hsize * g_camif_host.scaler.des_vsize * 1;
+				g_camif_host.udma.ch2   = 1;
+				//CbCr
+				g_camif_host.addr.cb     = (long)g_camif_host.dma_buf_saddr;
+				g_camif_host.addr.cb_len = g_camif_host.scaler.des_hsize * g_camif_host.scaler.des_vsize / 2;
+				g_camif_host.udma.ch1   = 1;
+
+				break;
+			}
+		case PREVIEW_SPLANE_422:
+			{
+				//Y
+				g_camif_host.addr.y     = (long)g_camif_host.dma_buf_saddr;
+				g_camif_host.addr.y_len = g_camif_host.scaler.des_hsize * g_camif_host.scaler.des_vsize * 1;
+				g_camif_host.udma.ch2   = 1;
+				//CbCr
+				g_camif_host.addr.cb     = (long)g_camif_host.dma_buf_saddr;
+				g_camif_host.addr.cb_len = g_camif_host.scaler.des_hsize * g_camif_host.scaler.des_vsize ;
+				g_camif_host.udma.ch1   = 1;
+				break;
+			}
+
+ 	}
+
+	return 0;
+}
+
+
 void imapx_camif_cfg_addr(int index)
 {
 	u32 len = 0;
+	//if preview enable ,then enable ch3/4
+	if( g_camif_host.preview.enable ){
+		return;
+	}
 	
 	if(g_camif_host.addr.cr_len && g_camif_host.udma.ch0){
 		camif_write(&g_camif_host, CAMIF_CH0DMA_FB(index), g_camif_host.addr.cr);
@@ -414,6 +632,38 @@ void imapx_camif_cfg_addr(int index)
 
 }
 
+
+void imapx_camif_cfg_preview_addr(int index)
+{
+	u32 len = 0;
+	//if preview enable ,then enable ch3/4
+	if( g_camif_host.preview.enable ){
+		//CbCr channel 3
+		if(g_camif_host.addr.cb_len && g_camif_host.udma.ch3){
+			camif_write(&g_camif_host, CAMIF_CH3DMA_FB(index),(g_camif_host.addr.cb)); //set ddr address for dma
+			len = (g_camif_host.addr.cb_len) >> 3;
+			imapx_camif_set_bit(CAMIF_CH3DMA_CC(index), 25, 0, len);
+
+		}
+		//Y channel 4
+		if(g_camif_host.addr.y_len && g_camif_host.udma.ch4 && 
+						( g_camif_host.preview.st_order == PREVIEW_SPLANE_420 ||
+						  g_camif_host.preview.st_order == PREVIEW_SPLANE_422 ) ){
+			camif_write(&g_camif_host, CAMIF_CH4DMA_FB(index),(g_camif_host.addr.y));
+			len = (g_camif_host.addr.y_len) >> 3;
+			imapx_camif_set_bit(CAMIF_CH4DMA_CC(index), 25, 0, len);
+		}
+		//RGB channel 4
+		if(g_camif_host.addr.rgb_len && g_camif_host.udma.ch4 && 
+						( g_camif_host.preview.st_order == PREVIEW_RGB_16BIT ||
+						  g_camif_host.preview.st_order == PREVIEW_RGB_24BIT  ) ){
+			camif_write(&g_camif_host, CAMIF_CH4DMA_FB(index),(g_camif_host.addr.rgb));
+			len = (g_camif_host.addr.rgb_len) >> 3;
+			imapx_camif_set_bit(CAMIF_CH4DMA_CC(index), 25, 0, len);
+		}
+	}
+}
+
 void imapx_camif_enable_capture(void)
 {
 
@@ -422,56 +672,69 @@ void imapx_camif_enable_capture(void)
 	for(idx = 0; idx < 4; idx++){
 		if(g_camif_host.udma.ch0){   //set dma buffer autoload, next frame enable
 #if defined(MACRO_FOR_DEMO_USED)			
-			imapx_camif_set_bit(CAMIF_CH0DMA_CC(idx), 3,
-					CICHxALTCTRL_Dir, 0x07);
+			imapx_camif_set_bit(CAMIF_CH0DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x07);
 #else
-			imapx_camif_set_bit(CAMIF_CH0DMA_CC(idx), 3,
-					CICHxALTCTRL_Dir, 0x03);
+			imapx_camif_set_bit(CAMIF_CH0DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x03);
 #endif
 		}
 
 		if(g_camif_host.udma.ch1){
 #if defined(MACRO_FOR_DEMO_USED)		
-			imapx_camif_set_bit(CAMIF_CH1DMA_CC(idx), 3,
-					CICHxALTCTRL_Dir, 0x07);
+			imapx_camif_set_bit(CAMIF_CH1DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x07);
 #else
-			imapx_camif_set_bit(CAMIF_CH1DMA_CC(idx), 3,
-					CICHxALTCTRL_Dir, 0x03);
+			imapx_camif_set_bit(CAMIF_CH1DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x03);
 #endif
 		}
 
 		if(g_camif_host.udma.ch2){
 #if defined(MACRO_FOR_DEMO_USED)		
-			imapx_camif_set_bit(CAMIF_CH2DMA_CC(idx), 3,
-					CICHxALTCTRL_Dir, 0x03);
+			imapx_camif_set_bit(CAMIF_CH2DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x07);
 #else
-			imapx_camif_set_bit(CAMIF_CH2DMA_CC(idx), 3,
-					CICHxALTCTRL_Dir, 0x03);
+			imapx_camif_set_bit(CAMIF_CH2DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x03);
 #endif
-
 		}
+
+		if(g_camif_host.udma.ch3){
+#if defined(MACRO_FOR_DEMO_USED)		
+			imapx_camif_set_bit(CAMIF_CH3DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x07);
+#else
+			imapx_camif_set_bit(CAMIF_CH3DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x03);
+#endif
+		}
+
+		if(g_camif_host.udma.ch4){
+#if defined(MACRO_FOR_DEMO_USED)		
+			imapx_camif_set_bit(CAMIF_CH3DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x07);
+#else
+			imapx_camif_set_bit(CAMIF_CH3DMA_CC(idx), 3, CICHxALTCTRL_Dir, 0x03);
+#endif
+		}
+
 	}
 
 	//enable dma channel
 	if(g_camif_host.udma.ch0){
-		imapx_camif_set_bit(CAMIF_CH0DMA_CC(0), 1,
-				CICHxCTRL_DMAEn, 0x01);
+		imapx_camif_set_bit(CAMIF_CH0DMA_CC(0), 1, CICHxCTRL_DMAEn, 0x01);
 	}
-
 	if(g_camif_host.udma.ch1){	
-		imapx_camif_set_bit(CAMIF_CH1DMA_CC(0), 1,
-				CICHxCTRL_DMAEn, 0x01);
+		imapx_camif_set_bit(CAMIF_CH1DMA_CC(0), 1, CICHxCTRL_DMAEn, 0x01);
 	}
-	
 	if(g_camif_host.udma.ch2){	
-		imapx_camif_set_bit(CAMIF_CH2DMA_CC(0), 1,
-				CICHxCTRL_DMAEn, 0x01);
+		imapx_camif_set_bit(CAMIF_CH2DMA_CC(0), 1, CICHxCTRL_DMAEn, 0x01);
 	}
-	
+	if(g_camif_host.udma.ch3){	
+		imapx_camif_set_bit(CAMIF_CH3DMA_CC(0), 1, CICHxCTRL_DMAEn, 0x01);
+	}
+	if(g_camif_host.udma.ch4){	
+		imapx_camif_set_bit(CAMIF_CH4DMA_CC(0), 1, CICHxCTRL_DMAEn, 0x01);
+	}
 
 	//enable camif and code path 
-	imapx_camif_set_bit(CAMIF_CIIMGCPT, 3, 
-				CIIMGCPT_ImgCptEn_PrSc, 0x06);	
+	if( g_camif_host.outfmt.codec_enable )
+		imapx_camif_set_bit(CAMIF_CIIMGCPT, 3, CIIMGCPT_ImgCptEn_PrSc, 0x06);	
+	//enable camif and preview path
+	if( g_camif_host.preview.enable )
+		imapx_camif_set_bit(CAMIF_CIIMGCPT, 3, CIIMGCPT_ImgCptEn_PrSc, 0x05);	
 
 }
 
@@ -494,20 +757,24 @@ void imapx_camif_disable_capture(void)
 				CICHxCTRL_RST, 0x01);
 	}
 	
-	//disable camif and code path 
+	if(g_camif_host.udma.ch3){	
+		imapx_camif_set_bit(CAMIF_CH3DMA_CC(0), 2,
+				CICHxCTRL_RST, 0x01);
+	}
+
+	if(g_camif_host.udma.ch4){	
+		imapx_camif_set_bit(CAMIF_CH4DMA_CC(0), 2,
+				CICHxCTRL_RST, 0x01);
+	}
+	//disable camif and code path and preview path
 	imapx_camif_set_bit(CAMIF_CIIMGCPT, 3, 
 				CIIMGCPT_ImgCptEn_PrSc, 0x00);	
 }
-/*
-*(1)这个函数相当于逆初始化。就是退出的时候关闭。
-*/
+
+
 void imapx_camif_host_deinit(void)
 {
-	/*
-	*(1)图像采样使能寄存器。bit31，表示camera if接口全局使能控制：0-表示关闭；1-表示开启。
-	*(2)图像采样使能寄存器。bit30，表示编码通路使能。
-	*(3)图像采样使能寄存器。bit29，表示preview通路使能。
-	*/
+	//disable camif
 	imapx_camif_set_bit(CAMIF_CIIMGCPT, 1, CIIMGCPT_CAMIF_EN, 0);
 	imapx_camif_set_bit(CAMIF_CIIMGCPT, 1, CIIMGCPT_ImgCptEn_CoSc, 0);
 	imapx_camif_set_bit(CAMIF_CIIMGCPT, 1, CIIMGCPT_ImgCptEn_PrSc, 0);
@@ -526,10 +793,7 @@ void imapx_camif_host_deinit(void)
 void imapx_camif_host_init(void)
 {
 
-	/* 
-	*(1)camif soft reset:写1复位；写0干嘛？
-	*(2)设置窗口的横向、纵向偏移量。往寄存器0x4写数据。这个我已经请教过大神，所谓的窗口偏移，就是将原图丢掉一部分数据。
-	*/
+	/* camif soft reset*/
 	imapx_camif_set_bit(CAMIF_CIGCTRL, 1, CIGCTRL_SwRst, 1); 
 	//udelay(5000);
 	imapx_camif_set_bit(CAMIF_CIGCTRL, 1, CIGCTRL_SwRst, 0);
@@ -537,47 +801,29 @@ void imapx_camif_host_init(void)
 	camif_write(&g_camif_host, CAMIF_CIWDOFST, 
 				(camif_init_config.xoffset << CIWDOFST_WinHorOfst) |
 				(camif_init_config.yoffset << CIWDOFST_WinVerOfst));
-	/*
-	*(1)CISRCFMT_ITU601or656:表示0x0寄存器的bit31，选择BT656、BT601、BT1120
-	*(2)CISRCFMT_UVOffset:表示CbCr偏移值.原本这个设计的目的，是将RGB的格式，按照这个寄存器来转换为YCbCr或者YUV。
-	*(3)CISRCFMT_ScanMode:设置为0，表示逐行模式
-	*(4)CISRCFMT_Order422:由于选择的是601模式，yuv模式0，就是YCbCr
-	*/
+	//set camif input format 
 	camif_write(&g_camif_host, CAMIF_CISRCFMT,
-				(camif_init_config.itu601 << CISRCFMT_ITU601or656) | 
+				(camif_init_config.itu601 << CISRCFMT_ITU601or656) |
 				(camif_init_config.uvoffset << CISRCFMT_UVOffset) |
-			//	(camif_init_config.interlaced << CISRCFMT_ScanMode) |
-				(0 << CISRCFMT_ScanMode) |
+				(camif_init_config.interlaced << CISRCFMT_ScanMode) |
+				//(0 << CISRCFMT_ScanMode) |
 				(camif_init_config.yuv_sequence << CISRCFMT_Order422));
 	
 	//set camif interrupt and signal polarity
-	/*
-	*(0)CAMIF_CIGCTRL:
-	*(1)CIGCTRL_IRQ_OvFiCH4_en:使能通道4的FIFO溢出中断
-	*(2)CIGCTRL_IRQ_OvFiCH3_en:使能通道3的FIFO溢出中断
-	*(3)CIGCTRL_IRQ_OvFiCH2_en:使能通道2的FIFO溢出中断
-	*(4)CIGCTRL_IRQ_OvFiCH1_en:使能通道1的FIFO溢出中断
-	*(5)CIGCTRL_IRQ_OvFiCH0_en:使能通道0的FIFO溢出中断
-	*(6)CIGCTRL_DEBUG_EN:debug
-	*(7)CIGCTRL_IRQ_en:中断使能信号，当采集图片时产生中断
-	*(8)CIGCTRL_IRQ_Bad_SYN_en:bt656，输入参照编码错误中断使能
-	*/
 	camif_write(&g_camif_host, CAMIF_CIGCTRL, (1 << CIGCTRL_IRQ_OvFiCH4_en) |
 			(1 << CIGCTRL_IRQ_OvFiCH3_en) | (1 << CIGCTRL_DEBUG_EN) |
 			(1 << CIGCTRL_IRQ_OvFiCH2_en) | (1 << CIGCTRL_IRQ_en) |
 			(1 << CIGCTRL_IRQ_OvFiCH1_en) | (1 << CIGCTRL_IRQ_Bad_SYN_en) | 
 			(1 << CIGCTRL_IRQ_OvFiCH0_en) | 
-			(camif_init_config.intt_type << CIGCTRL_IRQ_Int_Mask_Pr) | //preview通道中断屏蔽，此时是使用dma中断完成作中断
-			(camif_init_config.intt_type << CIGCTRL_IRQ_Int_Mask_Co) | //编码通道中断屏蔽，此时是使用dma中断完成作中断源
-			(camif_init_config.invpclk   << CIGCTRL_InvPolCAMPCLK)   | //极性设置
-			(camif_init_config.invvsync  << CIGCTRL_InvPolCAMVSYNC)  | //极性设置
-			(camif_init_config.invhref   << CIGCTRL_InvPolCAMHREF)   | //极性设置
-			(camif_init_config.invfield  << CIGCTRL_InvPolCAMFIELD));  //极性设置
+			(camif_init_config.intt_type << CIGCTRL_IRQ_Int_Mask_Pr) |
+			(camif_init_config.intt_type << CIGCTRL_IRQ_Int_Mask_Co) |
+			(camif_init_config.invpclk   << CIGCTRL_InvPolCAMPCLK)   |
+			(camif_init_config.invvsync  << CIGCTRL_InvPolCAMVSYNC)  |
+			(camif_init_config.invhref   << CIGCTRL_InvPolCAMHREF)   |
+			(camif_init_config.invfield  << CIGCTRL_InvPolCAMFIELD)); 
 	
 	// set codec output 
-	/*
-	*(1)目标图像的宽度和高度
-	*/
+	
 	camif_write(&g_camif_host, CAMIF_CICOTRGSIZE,
 			(camif_init_config.c_width << CICOTRGSIZE_TargetHsize) |
 			(camif_init_config.c_height << CICOTRGSIZE_TargetVsize));
@@ -585,50 +831,32 @@ void imapx_camif_host_init(void)
 	return;
 }
 
-/*
-*(1)目前我也不知道DVP是个啥。先看看。
-*/
 void imapx_camifdvp_init(void) {
-	/* 
-	*(1)wrapper bypass 
-	*(2)从目前来看，应该是bypass
-	*/
+	/* wrapper bypass */
 	if(camifdvp_init_config.hmode != 0x2 && camifdvp_init_config.hmode != 0x3
 			&& camifdvp_init_config.vmode != 0x1) {
 		printf("Camif DVP wrapper bypass!!\n");
 		return ;
 	}
 	printf("Camif DVP wrapper begin to config!!\n");
-	/*
-	*(1)原来DVP和camif是两个模块？因为它们有不同的基地址。
-	*(2)设置几个信号的极性
-	*/
-	writel((camifdvp_init_config.debugon << 3)  | 
+
+	writel((camifdvp_init_config.debugon << 4)  | 
 			(camifdvp_init_config.invclk << 2) |
 			(camifdvp_init_config.invvsync) << 1 |
 			camifdvp_init_config.invhsync , g_camif_host.dvp_base + 0);
-	/*
-	*(1)反正就是往DVP模块的0x4寄存器配置了hmode和vmode
-	*/
+
 	writel((camifdvp_init_config.hmode << 4) |
 			camifdvp_init_config.vmode, g_camif_host.dvp_base + 0x4);
-	/*
-	*(1)配置水平像素的个数。
-	*(2)配置垂直行的个数。
-	*/
+
 	writel(((camifdvp_init_config.hnum -1) << 16) |
 			(camifdvp_init_config.vnum -1), g_camif_host.dvp_base + 0x8);
-	//8个数据线的屏蔽寄存器。总共8个数据线，可以屏蔽任何一个bit位。
+
 	writel(camifdvp_init_config.syncmask, g_camif_host.dvp_base + 0xc);
-	//第一个同步code
 	writel(camifdvp_init_config.syncode0, g_camif_host.dvp_base + 0x10);
-	//第二个同步code
 	writel(camifdvp_init_config.syncode1, g_camif_host.dvp_base + 0x14);
-	//第三个同步code
 	writel(camifdvp_init_config.syncode2, g_camif_host.dvp_base + 0x18);
-	//第四个同步code
 	writel(camifdvp_init_config.syncode3, g_camif_host.dvp_base + 0x1c);
-	//水平delay的时间计数器、垂直delay的时间计数器
+
 	writel(((camifdvp_init_config.hdlycnt) << 16) |
 			(camifdvp_init_config.vdlycnt), g_camif_host.dvp_base + 0x20);
 }

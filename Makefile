@@ -1,9 +1,8 @@
 include $(SRCTREE)/build/config.mk
-ARCHIVE := testbench_csi.a
+ARCHIVE := drv_camif.a
 
-SRCS := \
-	csi_main.c \
-	camif_main.c
+SRCS := camif_reg.c \
+		camif_core.c 
 
 include $(BUILD_LIB)
 
